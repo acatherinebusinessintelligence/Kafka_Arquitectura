@@ -13,4 +13,4 @@ Esta carpeta contiene los **materiales interactivos en HTML** del Taller 2.
 ## 🌐 Visualización
 
 Si se publica con GitHub Pages, accede en:  
-👉 `https://<usuario>.github.io/<repo>/docs/index_taller2_simple.html`
+👉 [`https://<usuario>.github.io/<repo>/docs/index_taller2_simple.html`]
