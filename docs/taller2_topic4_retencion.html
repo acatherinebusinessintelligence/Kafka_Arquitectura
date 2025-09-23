@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Taller 2 · Tópico 4 — Retención de datos (Kafka · Podman · WSL2)</title>
+<style>
+:root{
+  --bg:#ffffff; --paper:#f8fafc; --ink:#0b1220; --muted:#475569; --accent:#0b1220;
+  --border:#e2e8f0; --primary:#1e40af; --primary2:#2563eb; --ok:#059669;
+}
+*{box-sizing:border-box}
+html{font-size:18px}
+@media (min-width:1100px){ html{font-size:19px} }
+body{margin:0;font-family:Inter, Segoe UI, Roboto, Arial, sans-serif;background:var(--bg);color:var(--ink);line-height:1.75}
+header{padding:28px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,#eef2ff, #ffffff)}
+h1{margin:0 0 6px;font-size:2.0rem;color:var(--accent);letter-spacing:.2px}
+p.lead{margin:6px 0 0;color:#1f2a44}
+main{max-width:1000px;margin:0 auto;padding:24px}
+.section{background:var(--paper);border:1px solid var(--border);border-radius:16px;padding:20px;margin:18px 0;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+h2{margin:.2rem 0 1rem;font-size:1.35rem;color:#0e1726}
+h3{margin:1rem 0 .4rem;font-size:1.05rem}
+.grid{display:grid;grid-template-columns:1fr;gap:16px}
+@media (min-width:900px){ .grid{grid-template-columns:1.1fr .9fr} }
+.card{background:#fff;border:1px solid var(--border);border-radius:14px;padding:14px}
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:#fff;color:#475569;font-size:.85rem}
+blockquote{margin:0;border-left:5px solid var(--primary2);padding:10px 14px;background:#eef6ff;border:1px solid #dbeafe;border-radius:10px;color:#0b3b8a}
+ul{padding-left:1.2rem}
+pre{position:relative;background:#fff;border:1px solid var(--border);border-radius:12px;padding:12px;overflow:auto}
+code{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+.copy{position:absolute;right:8px;top:8px;font-size:.9rem;border:1px solid var(--border);background:#fff;border-radius:7px;padding:4px 10px;cursor:pointer;color:#334155}
+.copy:hover{border-color:#cbd5e1}
+.footer{color:#64748b;font-size:.95rem;text-align:center;margin:26px 0}
+.checklist{list-style:none;padding-left:0}
+.checklist li{display:flex;align-items:flex-start;gap:10px;margin:.5rem 0}
+.checklist input{margin-top:.25rem;transform:scale(1.2)}
+.small{color:#475569;font-size:.95rem}
+.tip{font-size:.95rem;color:#0b3b8a}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--border)}
+th,td{border:1px solid var(--border);padding:10px;text-align:left}
+th{background:#f1f5f9}
+</style>
+</head>
+<body>
+<header>
+  <h1>Tópico 4 — Retención de datos</h1>
+  <p class="lead">Kafka en un clúster de 3 brokers (Podman · WSL2) — políticas de ciclo de vida por tiempo y tamaño, y verificación en laboratorio.</p>
+  <div>
+    <span class="badge">Logística · tracking</span>
+    <span class="badge">Observabilidad</span>
+    <span class="badge">Optimización de costos</span>
+  </div>
+</header>
+
+<main>
+
+<div class="section">
+  <h2>Contexto práctico</h2>
+  <div class="grid">
+    <div class="card">
+      <p>En logística e IoT se generan flujos masivos de eventos (posiciones GPS, telemetría, métricas). Es común conservar solo una <b>ventana útil</b> (por ejemplo, 7 días) y purgar automáticamente el resto para controlar el uso de disco y el riesgo de exposición de datos.</p>
+      <blockquote>La retención en Kafka borra datos del log cuando se supera un límite de <b>tiempo</b> (<code>retention.ms</code>) o de <b>tamaño</b> (<code>retention.bytes</code>).</blockquote>
+    </div>
+    <div class="card">
+      <h3>Objetivos del punto</h3>
+      <ul>
+        <li>Configurar retención por tiempo y comprender su efecto.</li>
+        <li>Ver cómo la purga no depende de que alguien consuma.</li>
+        <li>Diferenciar retención del manejo de offsets del consumidor.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Conceptos clave</h2>
+  <ul>
+    <li><b>retention.ms:</b> vida máxima del mensaje en el log.</li>
+    <li><b>retention.bytes:</b> límite de tamaño de log por partición/tópico.</li>
+    <li><b>Segmentos:</b> archivos físicos rotados; la limpieza se aplica por segmentos, no por mensaje individual.</li>
+    <li><b>Offsets:</b> posición del consumidor; <u>no</u> controlan la retención del log.</li>
+  </ul>
+  <table>
+    <tr><th>Parámetro</th><th>Ejemplo</th><th>Cuándo usar</th></tr>
+    <tr><td><code>retention.ms</code></td><td>604800000 (7 días)</td><td>Ventanas temporales específicas</td></tr>
+    <tr><td><code>retention.bytes</code></td><td>10737418240 (10 GB)</td><td>Controlar crecimiento por tamaño</td></tr>
+  </table>
+</div>
+
+<div class="section">
+  <h2>Paso a paso — Probar retención</h2>
+  <div class="card">
+    <h3>1) Crear un tópico con retención corta</h3>
+    <p>Usaremos 1 minuto para observar la purga durante la práctica.</p>
+    <button class="copy" onclick="copy(this)">Copiar</button><pre><code>podman exec -it kafka1 bash -lc \
+  'kafka-topics --create --topic eventos \
+  --bootstrap-server kafka1:29092 \
+  --partitions 3 \
+  --replication-factor 3 \
+  --config retention.ms=60000'</code></pre>
+  </div>
+
+  <div class="card">
+    <h3>2) Producir eventos de prueba</h3>
+    <button class="copy" onclick="copy(this)">Copiar</button><pre><code>podman exec -it kafka1 bash -lc \
+  'kafka-console-producer --topic eventos --bootstrap-server kafka1:29092'
+sensor-001
+sensor-002
+sensor-003</code></pre>
+  </div>
+
+  <div class="card">
+    <h3>3) Verificar consumo desde el inicio</h3>
+    <button class="copy" onclick="copy(this)">Copiar</button><pre><code>podman exec -it kafka2 bash -lc \
+  'kafka-console-consumer --topic eventos --bootstrap-server kafka2:29092 --from-beginning --timeout-ms 5000 || true'</code></pre>
+    <p class="small">Deberías ver los mensajes recién producidos.</p>
+  </div>
+
+  <div class="card">
+    <h3>4) Esperar la expiración y volver a consumir</h3>
+    <ol>
+      <li>Espera 1–2 minutos para permitir la limpieza por tiempo.</li>
+      <li>Vuelve a consumir desde el inicio:</li>
+    </ol>
+    <button class="copy" onclick="copy(this)">Copiar</button><pre><code>podman exec -it kafka2 bash -lc \
+  'kafka-console-consumer --topic eventos --bootstrap-server kafka2:29092 --from-beginning --timeout-ms 5000 || true'</code></pre>
+    <p class="small"><b>Resultado esperado:</b> los mensajes anteriores ya no aparecen; el log se redujo según la política.</p>
+  </div>
+
+  <div class="card">
+    <h3>5) (Opcional) Probar límite por tamaño</h3>
+    <p>Configura retención por tamaño y genera tráfico hasta forzar rotación.</p>
+    <button class="copy" onclick="copy(this)">Copiar</button><pre><code>podman exec -it kafka1 bash -lc \
+  'kafka-topics --create --topic eventos_bytes \
+  --bootstrap-server kafka1:29092 \
+  --partitions 3 \
+  --replication-factor 3 \
+  --config retention.bytes=1048576'</code></pre>
+    <p class="small">Produce mensajes hasta superar ~1 MB por partición y observa la purga por tamaño.</p>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Buenas prácticas</h2>
+  <ul>
+    <li>Elige retención por tiempo o tamaño según los <b>SLA de negocio</b> y costos.</li>
+    <li>Para datos críticos a largo plazo, escribe también a un <b>Data Lake</b> (S3, GCS, HDFS) o usa <em>tiered storage</em>.</li>
+    <li>Monitorea uso de disco, rotación de segmentos y tiempos de limpieza.</li>
+  </ul>
+</div>
+
+<div class="section">
+  <h2>Problemas frecuentes</h2>
+  <ul>
+    <li><b>No se purga “al segundo exacto”:</b> la limpieza depende de la rotación de segmentos.</li>
+    <li><b>Confusión con offsets:</b> aunque nadie consuma, el log expira igual; los offsets no impiden la purga.</li>
+    <li><b>Falta de espacio:</b> usa <code>retention.bytes</code> y vigila el tamaño por partición.</li>
+  </ul>
+</div>
+
+<div class="section">
+  <h2>Checklist final</h2>
+  <ul class="checklist">
+    <li><input type="checkbox"> Tópico <code>eventos</code> creado con <code>retention.ms=60000</code>.</li>
+    <li><input type="checkbox"> Mensajes producidos y consumidos desde el inicio.</li>
+    <li><input type="checkbox"> Tras 1–2 minutos, los mensajes caducados ya no aparecen.</li>
+    <li><input type="checkbox"> Entendí la diferencia entre retención y offsets del consumidor.</li>
+    <li><input type="checkbox"> (Opcional) Probé retención por tamaño con <code>retention.bytes</code>.</li>
+  </ul>
+</div>
+
+</main>
+<div class="footer">Tópico 4 — Preparado para capacitación por <b>Alejandra Montaña</b> · © 2025 · WSL2 + Ubuntu 24.04 + Podman + Kafka</div>
+
+<script>
+function copy(btn){
+  const pre = btn.nextElementSibling;
+  const text = pre.innerText;
+  navigator.clipboard.writeText(text).then(()=>{
+    const original = btn.textContent;
+    btn.textContent = "Copiado ✓";
+    setTimeout(()=>btn.textContent=original,1200);
+  });
+}
+</script>
+</body>
+</html>

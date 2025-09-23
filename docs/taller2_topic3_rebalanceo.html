@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Taller 2 · Tópico 3 — Rebalanceo de grupos (Kafka · Podman · WSL2)</title>
+<style>
+:root{
+  --bg:#ffffff; --paper:#f8fafc; --ink:#0b1220; --muted:#475569; --accent:#0b1220;
+  --border:#e2e8f0; --primary:#1e40af; --primary2:#2563eb; --ok:#059669;
+}
+*{box-sizing:border-box}
+html{font-size:18px}
+@media (min-width:1100px){ html{font-size:19px} }
+body{margin:0;font-family:Inter, Segoe UI, Roboto, Arial, sans-serif;background:var(--bg);color:var(--ink);line-height:1.75}
+header{padding:28px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,#eef2ff, #ffffff)}
+h1{margin:0 0 6px;font-size:2.0rem;color:var(--accent);letter-spacing:.2px}
+p.lead{margin:6px 0 0;color:#1f2a44}
+main{max-width:1000px;margin:0 auto;padding:24px}
+.section{background:var(--paper);border:1px solid var(--border);border-radius:16px;padding:20px;margin:18px 0;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+h2{margin:.2rem 0 1rem;font-size:1.35rem;color:#0e1726}
+h3{margin:1rem 0 .4rem;font-size:1.05rem}
+.grid{display:grid;grid-template-columns:1fr;gap:16px}
+@media (min-width:900px){ .grid{grid-template-columns:1.1fr .9fr} }
+.card{background:#fff;border:1px solid var(--border);border-radius:14px;padding:14px}
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:#fff;color:#475569;font-size:.85rem}
+blockquote{margin:0;border-left:5px solid var(--primary2);padding:10px 14px;background:#eef6ff;border:1px solid #dbeafe;border-radius:10px;color:#0b3b8a}
+ul{padding-left:1.2rem}
+pre{position:relative;background:#fff;border:1px solid var(--border);border-radius:12px;padding:12px;overflow:auto}
+code{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+.copy{position:absolute;right:8px;top:8px;font-size:.9rem;border:1px solid var(--border);background:#fff;border-radius:7px;padding:4px 10px;cursor:pointer;color:#334155}
+.copy:hover{border-color:#cbd5e1}
+.footer{color:#64748b;font-size:.95rem;text-align:center;margin:26px 0}
+.checklist{list-style:none;padding-left:0}
+.checklist li{display:flex;align-items:flex-start;gap:10px;margin:.5rem 0}
+.checklist input{margin-top:.25rem;transform:scale(1.2)}
+.small{color:#475569;font-size:.95rem}
+.tip{font-size:.95rem;color:#0b3b8a}
+</style>
+</head>
+<body>
+<header>
+  <h1>Tópico 3 — Rebalanceo de grupos</h1>
+  <p class="lead">Kafka en un clúster de 3 brokers (Podman · WSL2) — continuidad operativa cuando entran/salen consumidores.</p>
+  <div>
+    <span class="badge">Alta disponibilidad</span>
+    <span class="badge">Recuperación ante fallos</span>
+    <span class="badge">Escalado dinámico</span>
+  </div>
+</header>
+
+<main>
+
+<div class="section">
+  <h2>Contexto práctico</h2>
+  <div class="grid">
+    <div class="card">
+      <p>En producción, los servicios suben y bajan por despliegues, autoscaling o fallos. El <b>rebalanceo</b> permite que un grupo reasigne automáticamente las particiones cuando cambia su membresía, manteniendo el procesamiento en marcha.</p>
+      <blockquote>Si un consumidor se detiene, otro asume las particiones; cuando vuelve a incorporarse, el grupo se reequilibra.</blockquote>
+    </div>
+    <div class="card">
+      <h3>Objetivos del punto</h3>
+      <ul>
+        <li>Observar la reasignación de particiones al cerrar/abrir consumidores.</li>
+        <li>Medir el impacto temporal (lag/pause) durante el rebalanceo.</li>
+        <li>Usar herramientas de inspección del grupo.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Conceptos clave</h2>
+  <ul>
+    <li><b>Membresía de grupo:</b> lista de consumidores activos en el grupo.</li>
+    <li><b>Rebalanceo:</b> redistribución de particiones ante cambios de membresía.</li>
+    <li><b>Lag:</b> mensajes pendientes por procesar; puede aumentar durante el rebalanceo.</li>
+  </ul>
+</div>
+
+<div class="section">
+  <h2>Paso a paso — Forzar y observar rebalanceo</h2>
+  <div class="card">
+    <h3>1) Inicia dos consumidores en el mismo grupo</h3>
+    <button class="copy" onclick="copy(this)">Copiar</button><pre><code># Consumidor A
+podman exec -it kafka2 bash -lc \
+  'kafka-console-consumer --topic transacciones --bootstrap-server kafka2:29092 --group grupo1 --from-beginning'
+
+# Consumidor B
+podman exec -it kafka3 bash -lc \
+  'kafka-console-consumer --topic transacciones --bootstrap-server kafka3:29092 --group grupo1 --from-beginning'</code></pre>
+    <p class="small">Produce algunos mensajes desde kafka1 para ver el reparto en tiempo real.</p>
+    <button class="copy" onclick="copy(this)">Copiar</button><pre><code>podman exec -it kafka1 bash -lc \
+  'kafka-console-producer --topic transacciones --bootstrap-server kafka1:29092'
+pedido-101
+pedido-102
+pedido-103</code></pre>
+  </div>
+
+  <div class="card">
+    <h3>2) Cierra uno de los consumidores (provoca rebalanceo)</h3>
+    <p>Detén el consumidor B (Ctrl+C en su terminal). Observa cómo el consumidor A comienza a recibir <b>todas</b> las particiones.</p>
+    <p class="tip">Durante este cambio, puede aumentar el <em>lag</em> momentáneamente.</p>
+  </div>
+
+  <div class="card">
+    <h3>3) Reincorpora el consumidor B</h3>
+    <button class="copy" onclick="copy(this)">Copiar</button><pre><code>podman exec -it kafka3 bash -lc \
+  'kafka-console-consumer --topic transacciones --bootstrap-server kafka3:29092 --group grupo1'</code></pre>
+    <p class="small">El grupo vuelve a distribuir particiones. Produce nuevos mensajes para confirmar que ambos reciben carga.</p>
+  </div>
+
+  <div class="card">
+    <h3>4) Inspecciona el estado del grupo</h3>
+    <p>Usa la herramienta de grupos para ver asignaciones y lag:</p>
+    <button class="copy" onclick="copy(this)">Copiar</button><pre><code>podman exec -it kafka1 bash -lc \
+  'kafka-consumer-groups --bootstrap-server kafka1:29092 --group grupo1 --describe'</code></pre>
+    <p class="small">Repite el comando antes/durante/después de los cambios para observar el rebalanceo.</p>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Buenas prácticas</h2>
+  <ul>
+    <li>Evita reinicios simultáneos de muchos consumidores; escalona despliegues (<em>rolling</em>).</li>
+    <li>Ajusta timeouts de sesión y latidos (<code>session.timeout.ms</code>, <code>heartbeat.interval.ms</code>) a tu red y SLAs.</li>
+    <li>Monitorea <b>lag</b> y tasa de procesamiento; alerta ante crecimientos sostenidos.</li>
+  </ul>
+</div>
+
+<div class="section">
+  <h2>Problemas frecuentes</h2>
+  <ul>
+    <li><b>Rebalanceo constante:</b> consumidores inestables o timeouts muy bajos; revisa recursos y configuración.</li>
+    <li><b>Consumidor no toma particiones:</b> más consumidores que particiones, o el grupo aún está estabilizando.</li>
+    <li><b>No se ve el lag:</b> usa <code>kafka-consumer-groups --describe</code> en el broker adecuado y con el grupo correcto.</li>
+  </ul>
+</div>
+
+<div class="section">
+  <h2>Checklist final</h2>
+  <ul class="checklist">
+    <li><input type="checkbox"> Dos consumidores activos en <code>grupo1</code> recibiendo carga repartida.</li>
+    <li><input type="checkbox"> Al cerrar uno, el otro asumió todas las particiones (rebalanceo observado).</li>
+    <li><input type="checkbox"> Al reabrirlo, las particiones volvieron a repartirse.</li>
+    <li><input type="checkbox"> Inspeccioné el grupo con <code>kafka-consumer-groups --describe</code> y observé cambios.</li>
+    <li><input type="checkbox"> Comprendí el impacto temporal en el <em>lag</em> y cómo monitorearlo.</li>
+  </ul>
+</div>
+
+</main>
+<div class="footer">Tópico 3 — Preparado para capacitación por <b>Alejandra Montaña</b> · © 2025 · WSL2 + Ubuntu 24.04 + Podman + Kafka</div>
+
+<script>
+function copy(btn){
+  const pre = btn.nextElementSibling;
+  const text = pre.innerText;
+  navigator.clipboard.writeText(text).then(()=>{
+    const original = btn.textContent;
+    btn.textContent = "Copiado ✓";
+    setTimeout(()=>btn.textContent=original,1200);
+  });
+}
+</script>
+</body>
+</html>

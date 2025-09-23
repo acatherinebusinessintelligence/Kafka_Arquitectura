@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Taller 2 · Tópico 1 — Crear y configurar tópico con retención (Kafka · Podman · WSL2)</title>
+<style>
+:root{
+  --bg:#ffffff; --paper:#f8fafc; --ink:#0b1220; --muted:#475569; --accent:#0b1220;
+  --border:#e2e8f0; --primary:#1e40af; --primary2:#2563eb; --ok:#059669; --warn:#b45309; --err:#b91c1c;
+}
+*{box-sizing:border-box}
+html{font-size:18px}
+@media (min-width:1100px){ html{font-size:19px} }
+body{margin:0;font-family:Inter, Segoe UI, Roboto, Arial, sans-serif;background:var(--bg);color:var(--ink);line-height:1.75}
+header{padding:28px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,#eef2ff, #ffffff)}
+h1{margin:0 0 6px;font-size:2.0rem;color:var(--accent);letter-spacing:.2px}
+p.lead{margin:6px 0 0;color:#1f2a44}
+main{max-width:1000px;margin:0 auto;padding:24px}
+.section{background:var(--paper);border:1px solid var(--border);border-radius:16px;padding:20px;margin:18px 0;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+h2{margin:.2rem 0 1rem;font-size:1.35rem;color:#0e1726}
+h3{margin:1rem 0 .4rem;font-size:1.05rem}
+.grid{display:grid;grid-template-columns:1fr;gap:16px}
+@media (min-width:900px){ .grid{grid-template-columns:1.1fr .9fr} }
+.card{background:#fff;border:1px solid var(--border);border-radius:14px;padding:14px}
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:#fff;color:#475569;font-size:.85rem}
+.kpi{display:flex;gap:10px;flex-wrap:wrap;margin:.5rem 0}
+blockquote{margin:0;border-left:5px solid var(--primary2);padding:10px 14px;background:#eef6ff;border:1px solid #dbeafe;border-radius:10px;color:#0b3b8a}
+ul{padding-left:1.2rem}
+pre{position:relative;background:#fff;border:1px solid var(--border);border-radius:12px;padding:12px;overflow:auto}
+code{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+.copy{position:absolute;right:8px;top:8px;font-size:.9rem;border:1px solid var(--border);background:#fff;border-radius:7px;padding:4px 10px;cursor:pointer;color:#334155}
+.copy:hover{border-color:#cbd5e1}
+.table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--border)}
+.table th,.table td{border:1px solid var(--border);padding:10px;text-align:left}
+.table th{background:#f1f5f9}
+.footer{color:#64748b;font-size:.95rem;text-align:center;margin:26px 0}
+.tip{font-size:.95rem;color:#0b3b8a}
+.checklist{list-style:none;padding-left:0}
+.checklist li{display:flex;align-items:flex-start;gap:10px;margin:.5rem 0}
+.checklist input{margin-top:.25rem;transform:scale(1.2)}
+.small{color:#475569;font-size:.95rem}
+</style>
+</head>
+<body>
+<header>
+  <h1>Tópico 1 — Crear y configurar un tópico con retención</h1>
+  <p class="lead">Kafka en un clúster de 3 brokers (Podman · WSL2) — contexto de negocio, conceptos y práctica guiada.</p>
+  <div class="kpi">
+    <span class="badge">Banca · antifraude</span>
+    <span class="badge">Paralelismo por particiones</span>
+    <span class="badge">Políticas de ciclo de vida</span>
+  </div>
+</header>
+
+<main>
+
+<div class="section">
+  <h2>Contexto práctico</h2>
+  <div class="grid">
+    <div class="card">
+      <p>En un banco, llegan miles de transacciones por minuto. Mantener todo por tiempo indefinido es costoso y riesgoso. Para detección temprana de fraude, es suficiente concentrarse en ventanas cortas (minutos u horas) y limpiar automáticamente lo obsoleto.</p>
+      <blockquote>Objetivo: crear un tópico <b>transacciones</b> con retención breve para priorizar datos frescos y controlar el uso de almacenamiento.</blockquote>
+    </div>
+    <div class="card">
+      <h3>Objetivos del punto</h3>
+      <ul>
+        <li>Crear un tópico con <b>particiones</b> y <b>replicación</b> adecuadas.</li>
+        <li>Aplicar <code>retention.ms</code> como política de ciclo de vida.</li>
+        <li>Verificar líderes e ISR y comprender su impacto.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Conceptos clave</h2>
+  <table class="table">
+    <tr><th>Término</th><th>Qué es</th><th>Por qué importa</th></tr>
+    <tr><td>Particiones</td><td>Fragmentos del tópico para paralelismo.</td><td>Más particiones ⇒ más consumidores en paralelo.</td></tr>
+    <tr><td>RF (Replication Factor)</td><td>Copias por partición en distintos brokers.</td><td>RF=3 tolera la caída de 1 broker si ISR ≥ 2.</td></tr>
+    <tr><td>ISR</td><td>Réplicas sincronizadas.</td><td>Afecta consistencia y disponibilidad de escritura.</td></tr>
+    <tr><td>retention.ms</td><td>Tiempo de conservación antes de purga.</td><td>Controla costo y ventanas de análisis.</td></tr>
+  </table>
+</div>
+
+<div class="section">
+  <h2>Preparación</h2>
+  <p>Verifica que el clúster del Taller 1 esté arriba (Zookeeper, kafka1/kafka2/kafka3):</p>
+  <button class="copy" onclick="copy(this)">Copiar</button><pre><code>podman ps
+# Debe listar: zookeeper, kafka1, kafka2, kafka3</code></pre>
+  <p class="tip">Entre contenedores usa <code>kafkaN:29092</code>. Desde el host, puertos 9092/9093/9094.</p>
+</div>
+
+<div class="section">
+  <h2>Paso a paso — Crear y comprobar el tópico</h2>
+  <div class="card">
+    <h3>1) Crear tópico (4 particiones, RF=3, retención 1 minuto)</h3>
+    <button class="copy" onclick="copy(this)">Copiar</button><pre><code>podman exec -it kafka1 bash -lc \
+  'kafka-topics --create --topic transacciones \
+  --bootstrap-server kafka1:29092 \
+  --partitions 4 \
+  --replication-factor 3 \
+  --config retention.ms=60000'</code></pre>
+    <p><span class="small"><b>Nota:</b> 4 particiones permiten hasta 4 consumidores activos en un grupo.</span></p>
+  </div>
+
+  <div class="card">
+    <h3>2) Describir topología</h3>
+    <button class="copy" onclick="copy(this)">Copiar</button><pre><code>podman exec -it kafka1 bash -lc \
+  'kafka-topics --describe --topic transacciones --bootstrap-server kafka1:29092'</code></pre>
+    <p class="small"><b>Observa:</b> líder por partición, réplicas e ISR (idealmente 1,2,3).</p>
+  </div>
+
+  <div class="card">
+    <h3>3) Producir mensajes</h3>
+    <button class="copy" onclick="copy(this)">Copiar</button><pre><code>podman exec -it kafka1 bash -lc \
+  'kafka-console-producer --topic transacciones --bootstrap-server kafka1:29092'
+# Escribe algunos mensajes (uno por línea)
+TX-001
+TX-002
+TX-003
+</code></pre>
+  </div>
+
+  <div class="card">
+    <h3>4) Consumir desde el inicio</h3>
+    <button class="copy" onclick="copy(this)">Copiar</button><pre><code>podman exec -it kafka2 bash -lc \
+  'kafka-console-consumer --topic transacciones --bootstrap-server kafka2:29092 --from-beginning --timeout-ms 5000 || true'</code></pre>
+    <p class="small">Deberías ver los mensajes producidos.</p>
+  </div>
+
+  <div class="card">
+    <h3>5) Validar retención</h3>
+    <ol>
+      <li>Espera 1–2 minutos.</li>
+      <li>Vuelve a consumir desde el inicio:</li>
+    </ol>
+    <button class="copy" onclick="copy(this)">Copiar</button><pre><code>podman exec -it kafka2 bash -lc \
+  'kafka-console-consumer --topic transacciones --bootstrap-server kafka2:29092 --from-beginning --timeout-ms 5000 || true'</code></pre>
+    <p class="small"><b>Resultado esperado:</b> los mensajes anteriores ya no aparecen (purga por retención).</p>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Problemas frecuentes</h2>
+  <ul>
+    <li><b>TopicExistsException:</b> el tópico ya existe → continúa con <code>--describe</code>.</li>
+    <li><b>“Broker may not be available”:</b> confirma contenedores activos y usa <code>kafkaN:29092</code> entre contenedores.</li>
+    <li><b>Puertos ocupados o restos:</b></li>
+  </ul>
+  <button class="copy" onclick="copy(this)">Copiar</button><pre><code>podman stop -a && podman rm -a -f && podman pod rm -a -f
+podman network prune -f && podman volume prune -f</code></pre>
+  <ul>
+    <li><b>Retención no instantánea:</b> depende del tamaño/rotación de segmentos; espera unos segundos adicionales.</li>
+  </ul>
+</div>
+
+<div class="section">
+  <h2>Checklist final</h2>
+  <ul class="checklist">
+    <li><input type="checkbox"> Clúster activo: Zookeeper + kafka1/kafka2/kafka3.</li>
+    <li><input type="checkbox"> Tópico <code>transacciones</code> creado con 4 particiones, RF=3 y <code>retention.ms=60000</code>.</li>
+    <li><input type="checkbox"> <code>--describe</code> muestra líderes e ISR completos.</li>
+    <li><input type="checkbox"> Mensajes producidos y consumidos desde el inicio.</li>
+    <li><input type="checkbox"> Tras 1–2 minutos, los mensajes iniciales ya no aparecen (retención efectiva).</li>
+    <li><input type="checkbox"> Diferencié endpoints: <code>kafkaN:29092</code> dentro del clúster vs. <code>localhost:909x</code> desde el host.</li>
+    <li><input type="checkbox"> Sé cómo limpiar el entorno si quedan puertos/redes/volúmenes ocupados.</li>
+  </ul>
+</div>
+
+</main>
+<div class="footer">Tópico 1 — Preparado para capacitación por <b>Alejandra Montaña</b> · © 2025 · WSL2 + Ubuntu 24.04 + Podman + Kafka</div>
+
+<script>
+function copy(btn){
+  const pre = btn.nextElementSibling;
+  const text = pre.innerText;
+  navigator.clipboard.writeText(text).then(()=>{
+    const original = btn.textContent;
+    btn.textContent = "Copiado ✓";
+    setTimeout(()=>btn.textContent=original,1200);
+  });
+}
+</script>
+</body>
+</html>

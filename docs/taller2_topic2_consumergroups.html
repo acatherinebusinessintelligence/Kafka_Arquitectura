@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Taller 2 · Tópico 2 — Consumer Groups (Kafka · Podman · WSL2)</title>
+<style>
+:root{
+  --bg:#ffffff; --paper:#f8fafc; --ink:#0b1220; --muted:#475569; --accent:#0b1220;
+  --border:#e2e8f0; --primary:#1e40af; --primary2:#2563eb; --ok:#059669;
+}
+*{box-sizing:border-box}
+html{font-size:18px}
+@media (min-width:1100px){ html{font-size:19px} }
+body{margin:0;font-family:Inter, Segoe UI, Roboto, Arial, sans-serif;background:var(--bg);color:var(--ink);line-height:1.75}
+header{padding:28px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,#eef2ff, #ffffff)}
+h1{margin:0 0 6px;font-size:2.0rem;color:var(--accent);letter-spacing:.2px}
+p.lead{margin:6px 0 0;color:#1f2a44}
+main{max-width:1000px;margin:0 auto;padding:24px}
+.section{background:var(--paper);border:1px solid var(--border);border-radius:16px;padding:20px;margin:18px 0;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+h2{margin:.2rem 0 1rem;font-size:1.35rem;color:#0e1726}
+h3{margin:1rem 0 .4rem;font-size:1.05rem}
+.grid{display:grid;grid-template-columns:1fr;gap:16px}
+@media (min-width:900px){ .grid{grid-template-columns:1.1fr .9fr} }
+.card{background:#fff;border:1px solid var(--border);border-radius:14px;padding:14px}
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:#fff;color:#475569;font-size:.85rem}
+blockquote{margin:0;border-left:5px solid var(--primary2);padding:10px 14px;background:#eef6ff;border:1px solid #dbeafe;border-radius:10px;color:#0b3b8a}
+ul{padding-left:1.2rem}
+pre{position:relative;background:#fff;border:1px solid var(--border);border-radius:12px;padding:12px;overflow:auto}
+code{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+.copy{position:absolute;right:8px;top:8px;font-size:.9rem;border:1px solid var(--border);background:#fff;border-radius:7px;padding:4px 10px;cursor:pointer;color:#334155}
+.copy:hover{border-color:#cbd5e1}
+.footer{color:#64748b;font-size:.95rem;text-align:center;margin:26px 0}
+.checklist{list-style:none;padding-left:0}
+.checklist li{display:flex;align-items:flex-start;gap:10px;margin:.5rem 0}
+.checklist input{margin-top:.25rem;transform:scale(1.2)}
+.small{color:#475569;font-size:.95rem}
+</style>
+</head>
+<body>
+<header>
+  <h1>Tópico 2 — Consumer Groups</h1>
+  <p class="lead">Kafka en un clúster de 3 brokers (Podman · WSL2) — contexto práctico, teoría esencial y práctica guiada.</p>
+  <div>
+    <span class="badge">E‑commerce · Black Friday</span>
+    <span class="badge">Procesamiento paralelo</span>
+    <span class="badge">Escalabilidad horizontal</span>
+  </div>
+</header>
+
+<main>
+
+<div class="section">
+  <h2>Contexto práctico</h2>
+  <div class="grid">
+    <div class="card">
+      <p>En un día de promociones masivas como Black Friday, un e‑commerce recibe miles de pedidos por segundo. Un solo sistema consumidor no basta: se necesitan varias instancias que trabajen <b>en equipo</b> para procesar en paralelo.</p>
+      <blockquote>Kafka asigna particiones de un tópico entre los consumidores de un mismo grupo, de forma que cada mensaje sea procesado una sola vez.</blockquote>
+    </div>
+    <div class="card">
+      <h3>Objetivos del punto</h3>
+      <ul>
+        <li>Entender cómo un grupo distribuye particiones entre consumidores.</li>
+        <li>Observar el procesamiento paralelo en acción.</li>
+        <li>Explorar escalado dinámico añadiendo o quitando consumidores.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Conceptos clave</h2>
+  <ul>
+    <li><b>Consumer Group:</b> conjunto de consumidores que cooperan para leer un mismo tópico, sin duplicar trabajo.</li>
+    <li><b>Asignación de particiones:</b> cada partición se asigna a un único consumidor del grupo.</li>
+    <li><b>Escalado horizontal:</b> agregar consumidores permite repartir más carga, limitado por el número de particiones.</li>
+  </ul>
+</div>
+
+<div class="section">
+  <h2>Paso a paso — Producir y consumir en grupo</h2>
+  <div class="card">
+    <h3>1) Abrir un productor</h3>
+    <button class="copy" onclick="copy(this)">Copiar</button><pre><code>podman exec -it kafka1 bash -lc \
+  'kafka-console-producer --topic transacciones --bootstrap-server kafka1:29092'
+# Escribe algunos mensajes:
+pedido-001
+pedido-002
+pedido-003</code></pre>
+  </div>
+
+  <div class="card">
+    <h3>2) Iniciar primer consumidor en grupo1</h3>
+    <button class="copy" onclick="copy(this)">Copiar</button><pre><code>podman exec -it kafka2 bash -lc \
+  'kafka-console-consumer --topic transacciones --bootstrap-server kafka2:29092 --group grupo1 --from-beginning'</code></pre>
+  </div>
+
+  <div class="card">
+    <h3>3) Iniciar segundo consumidor en grupo1</h3>
+    <button class="copy" onclick="copy(this)">Copiar</button><pre><code>podman exec -it kafka3 bash -lc \
+  'kafka-console-consumer --topic transacciones --bootstrap-server kafka3:29092 --group grupo1 --from-beginning'</code></pre>
+    <p class="small">Los mensajes nuevos se repartirán entre ambos consumidores.</p>
+  </div>
+
+  <div class="card">
+    <h3>4) Escalar dinámicamente</h3>
+    <p>Prueba cerrar un consumidor (Ctrl+C). Kafka redistribuirá sus particiones al que queda activo.</p>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Problemas frecuentes</h2>
+  <ul>
+    <li><b>Mensajes duplicados:</b> ocurre si ejecutas consumidores en <em>grupos distintos</em>. Asegúrate de usar el mismo <code>--group</code>.</li>
+    <li><b>No ves todos los mensajes:</b> los grupos recuerdan su posición; usa <code>--from-beginning</code> solo al iniciar.</li>
+    <li><b>Más consumidores que particiones:</b> algunos quedarán inactivos; cada partición solo puede ser atendida por uno.</li>
+  </ul>
+</div>
+
+<div class="section">
+  <h2>Checklist final</h2>
+  <ul class="checklist">
+    <li><input type="checkbox"> Productor abierto en kafka1 enviando mensajes.</li>
+    <li><input type="checkbox"> Un consumidor en grupo1 recibiendo mensajes.</li>
+    <li><input type="checkbox"> Segundo consumidor en grupo1 recibiendo otros mensajes (reparto).</li>
+    <li><input type="checkbox"> Al cerrar un consumidor, el otro asume todas las particiones (rebalanceo básico).</li>
+    <li><input type="checkbox"> Entendí la diferencia entre usar el mismo grupo y usar grupos distintos.</li>
+  </ul>
+</div>
+
+</main>
+<div class="footer">Tópico 2 — Preparado para capacitación por <b>Alejandra Montaña</b> · © 2025 · WSL2 + Ubuntu 24.04 + Podman + Kafka</div>
+
+<script>
+function copy(btn){
+  const pre = btn.nextElementSibling;
+  const text = pre.innerText;
+  navigator.clipboard.writeText(text).then(()=>{
+    const original = btn.textContent;
+    btn.textContent = "Copiado ✓";
+    setTimeout(()=>btn.textContent=original,1200);
+  });
+}
+</script>
+</body>
+</html>

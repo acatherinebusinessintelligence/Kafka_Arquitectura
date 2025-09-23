@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kafka — Taller 2 · Índice (Podman · WSL2)</title>
+<style>
+:root{
+  --bg:#ffffff; --paper:#f8fafc; --ink:#0b1220; --muted:#475569; --accent:#0b1220;
+  --border:#e2e8f0; --primary:#1e40af; --primary2:#2563eb; --ok:#059669;
+}
+*{box-sizing:border-box}
+html{font-size:18px}
+@media (min-width:1100px){ html{font-size:19px} }
+body{margin:0;font-family:Inter, Segoe UI, Roboto, Arial, sans-serif;background:var(--bg);color:var(--ink);line-height:1.75}
+header{padding:28px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,#eef2ff, #ffffff)}
+h1{margin:0 0 6px;font-size:2.0rem;color:var(--accent);letter-spacing:.2px}
+p.lead{margin:6px 0 0;color:#1f2a44}
+main{max-width:1100px;margin:0 auto;padding:24px}
+.grid{display:grid;grid-template-columns:1fr;gap:16px}
+@media (min-width:900px){ .grid{grid-template-columns:repeat(2, 1fr)} }
+.card{background:#fff;border:1px solid var(--border);border-radius:16px;padding:18px;box-shadow:0 2px 8px rgba(0,0,0,.04);display:flex;flex-direction:column;gap:8px}
+.card h3{margin:.2rem 0 .2rem;font-size:1.12rem}
+.card p{margin:0;color:#475569}
+.card a{margin-top:auto;display:inline-block;text-decoration:none;border:1px solid var(--border);padding:8px 12px;border-radius:10px}
+.card a:hover{border-color:#cbd5e1}
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:#fff;color:#475569;font-size:.85rem}
+.kpi{display:flex;gap:10px;flex-wrap:wrap;margin:.5rem 0}
+section{background:var(--paper);border:1px solid var(--border);border-radius:16px;padding:18px;margin:18px 0}
+pre{position:relative;background:#fff;border:1px solid var(--border);border-radius:12px;padding:12px;overflow:auto}
+.copy{position:absolute;right:8px;top:8px;font-size:.9rem;border:1px solid var(--border);background:#fff;border-radius:7px;padding:4px 10px;cursor:pointer;color:#334155}
+.copy:hover{border-color:#cbd5e1}
+footer{color:#64748b;font-size:.95rem;text-align:center;margin:26px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>Kafka — Taller 2 · Índice</h1>
+  <p class="lead">WSL2 + Ubuntu 24.04 + Podman · 3 brokers + Zookeeper · Autora: <b>Alejandra Montaña</b></p>
+  <div class="kpi">
+    <span class="badge">Consumer Groups</span>
+    <span class="badge">Rebalanceo</span>
+    <span class="badge">Retención</span>
+  </div>
+</header>
+
+<main>
+
+<section>
+  <h2>Accesos rápidos</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>🧭 Tópico 1 · Tópico con retención</h3>
+      <p>Crear un tópico, configurar retención inicial y validar expiración.</p>
+      <a href="taller2_topic1_retencion_v2.html">Abrir</a>
+    </div>
+    <div class="card">
+      <h3>👥 Tópico 2 · Consumer Groups</h3>
+      <p>Dos consumidores en el mismo grupo y reparto de particiones.</p>
+      <a href="taller2_topic2_consumergroups.html">Abrir</a>
+    </div>
+    <div class="card">
+      <h3>🔁 Tópico 3 · Rebalanceo</h3>
+      <p>Salir/entrar consumidores y observar la reasignación.</p>
+      <a href="taller2_topic3_rebalanceo.html">Abrir</a>
+    </div>
+    <div class="card">
+      <h3>🗃️ Tópico 4 · Retención avanzada</h3>
+      <p>Políticas por tiempo/tamaño y verificación en laboratorio.</p>
+      <a href="taller2_topic4_retencion.html">Abrir</a>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Antes de comenzar</h2>
+  <p>Este taller asume que ya tienes el clúster del Taller 1 en marcha: <b>zookeeper, kafka1, kafka2, kafka3</b>. Si no está arriba, levántalo con tu <code>podman-compose</code>.</p>
+  <button class="copy" onclick="copy(this)">Copiar</button><pre><code>podman ps
+# Debes ver 4 contenedores activos: zookeeper, kafka1, kafka2, kafka3</code></pre>
+</section>
+
+</main>
+<footer>Índice — Kafka Taller 2 · Preparado por <b>Alejandra Montaña</b> · © 2025</footer>
+
+<script>
+function copy(btn){
+  const pre = btn.nextElementSibling;
+  const text = pre.innerText;
+  navigator.clipboard.writeText(text).then(()=>{
+    const original = btn.textContent;
+    btn.textContent = "Copiado ✓";
+    setTimeout(()=>btn.textContent=original,1200);
+  });
+}
+</script>
+</body>
+</html>
