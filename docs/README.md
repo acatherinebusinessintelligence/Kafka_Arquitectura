@@ -11,6 +11,4 @@ Esta carpeta contiene los **materiales interactivos en HTML** del Taller 2.
 - `taller2_topic4_retencion.html` → Tópico 4: Retención avanzada.
 
 ## 🌐 Visualización
-
-Si se publica con GitHub Pages, accede en:  
 👉 [`https://<usuario>.github.io/<repo>/docs/index_taller2_simple.html`]
