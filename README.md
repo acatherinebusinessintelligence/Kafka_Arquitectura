@@ -24,9 +24,7 @@ Los materiales principales están en la carpeta `docs/`:
 2. Abre el índice principal en tu navegador:
 
    - Localmente: abre `docs/index_taller2_simple.html`.
-   - En GitHub Pages (si está publicado):  
-     👉 `https://<usuario>.github.io/<repo>/docs/index_taller2_simple.html`
-
+       
 3. Sigue los pasos de cada Tópico:
    - **Tópico 1:** Crear un tópico y validar retención.  
    - **Tópico 2:** Ejecutar consumidores en grupo.  
