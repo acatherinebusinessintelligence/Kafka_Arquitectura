@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kafka · Restaurar equilibrio (3 brokers) — Reasignación equitativa paso a paso</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --panel: #ffffff;
+      --text: #0f172a;
+      --muted: #475569;
+      --accent: #2563eb;
+      --accent2: #3b82f6;
+      --ok: #16a34a;
+      --warn: #ca8a04;
+      --err: #dc2626;
+      --code: #f1f5f9;
+      --border: #e2e8f0;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin:0; padding:0; background:var(--bg); color:var(--text); font-family: system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif; line-height:1.6; }
+    .wrap { max-width: 1024px; margin: 24px auto 48px; padding: 0 16px; }
+    header { margin: 8px 0 20px; }
+    h1 { font-size: clamp(26px,3.6vw,40px); margin: 0 0 6px; background: linear-gradient(90deg,var(--accent),var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .subtitle { color: var(--muted); font-size: 14px; }
+    h2 { margin-top: 30px; font-size: 22px; border-left: 4px solid var(--accent); padding-left: 10px; }
+    h3 { margin-top: 18px; font-size: 18px; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin: 16px 0; box-shadow: 0 2px 8px rgba(0,0,0,.04); }
+    .toc a { color: var(--text); text-decoration: none; }
+    .toc a:hover { color: var(--accent); }
+    .toc ol { padding-left: 22px; }
+    code, pre { font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size: 13px; }
+    pre { background: var(--code); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow: auto; position: relative; }
+    pre .copy { position: absolute; top: 6px; right: 6px; background:#e2e8f0; color:#334155; border-radius: 6px; padding: 2px 6px; font-size: 12px; cursor: pointer; }
+    .hint { border-left: 3px solid var(--accent); background:#eff6ff; color:#1e3a8a; padding:10px 12px; border-radius: 8px; }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .err { color: var(--err); }
+    details summary { cursor: pointer; user-select: none; color: #334155; }
+    ul.inline > li { margin-bottom: 6px; }
+    footer { margin-top: 36px; color: var(--muted); font-size:12px; text-align:center; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Restaurar equilibrio en Kafka (3 brokers)</h1>
+      <div class="subtitle">Reasignación equitativa de réplicas y líderes cuando los brokers regresan · Actualizado: 2025-09-26</div>
+    </header>
+
+    <section class="card toc">
+      <strong>Contenido</strong>
+      <ol>
+        <li><a href="#prereq">Prerrequisitos</a></li>
+        <li><a href="#modo-seguro">Volver a modo seguro (opcional)</a></li>
+        <li><a href="#plan">Generar plan de reasignación equilibrada</a></li>
+        <li><a href="#ejecutar">Ejecutar y verificar la reasignación</a></li>
+        <li><a href="#lideres">Distribuir líderes (preferred leader election)</a></li>
+        <li><a href="#varios">Varios tópicos a la vez</a></li>
+        <li><a href="#validar">Validar la distribución final</a></li>
+        <li><a href="#problemas">Problemas frecuentes</a></li>
+      </ol>
+    </section>
+
+    <h2 id="prereq">1) Prerrequisitos</h2>
+    <div class="card">
+      <ul class="inline">
+        <li>Clúster en Podman/Compose con Zookeeper (cp-kafka 7.5.0).</li>
+        <li>Los tres brokers están activos y registrados:</li>
+      </ul>
+      <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc 'zookeeper-shell zookeeper:2181 ls /brokers/ids'
+# Esperado: [1, 2, 3]</code></pre>
+    </div>
+
+    <h2 id="modo-seguro">2) Volver a modo seguro (opcional)</h2>
+    <div class="card">
+      <p>Si degradaste garantías (por ejemplo, <code>min.insync.replicas=1</code> o <code>acks=1</code>), vuelve a una configuración segura:</p>
+      <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc   "kafka-configs --bootstrap-server kafka1:29092    --entity-type topics --entity-name demo    --alter --add-config min.insync.replicas=2"
+# Productores: acks=all</code></pre>
+    </div>
+
+    <h2 id="plan">3) Generar plan de reasignación equilibrada</h2>
+    <div class="card">
+      <h3>3.1 Listar tópicos a reequilibrar</h3>
+      <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc "cat &gt;/tmp/topics.json &lt;&lt;'JSON'
+{"version":1,"topics":[{"topic":"demo"}]}
+JSON"</code></pre>
+
+      <h3>3.2 Generar propuesta (Zookeeper)</h3>
+      <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc   "kafka-reassign-partitions --zookeeper zookeeper:2181    --topics-to-move-json-file /tmp/topics.json    --broker-list '1,2,3' --generate > /tmp/reassign.out"</code></pre>
+
+      <h3>3.3 Extraer JSON propuesto</h3>
+      <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc   "awk '/Proposed partition reassignment configuration/{f=1;next} /Current partition replica assignment/{f=0} f'    /tmp/reassign.out > /tmp/reassign.json"
+
+podman exec -it kafka1 bash -lc 'cat /tmp/reassign.json'</code></pre>
+    </div>
+
+    <h2 id="ejecutar">4) Ejecutar y verificar</h2>
+    <div class="card">
+      <h3>4.1 Ejecutar</h3>
+      <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc   "kafka-reassign-partitions --zookeeper zookeeper:2181    --reassignment-json-file /tmp/reassign.json --execute"</code></pre>
+
+      <h3>4.2 Verificar</h3>
+      <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc   "kafka-reassign-partitions --zookeeper zookeeper:2181    --reassignment-json-file /tmp/reassign.json --verify"</code></pre>
+    </div>
+
+    <h2 id="lideres">5) Distribuir líderes</h2>
+    <div class="card">
+      <p>Repartir líderes (primera réplica) entre brokers:</p>
+      <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc   "kafka-preferred-replica-election --zookeeper zookeeper:2181 --all-topic-partitions    || kafka-preferred-replica-election.sh --zookeeper zookeeper:2181 --all-topic-partitions"</code></pre>
+      <p class="hint">Algunos contenedores usan el script con o sin <code>.sh</code>.</p>
+    </div>
+
+    <h2 id="varios">6) Varios tópicos a la vez</h2>
+    <div class="card">
+      <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc "cat &gt;/tmp/topics.json &lt;&lt;'JSON'
+{
+  "version": 1,
+  "topics": [
+    {"topic":"demo"},
+    {"topic":"ventas"},
+    {"topic":"pagos"}
+  ]
+}
+JSON"
+
+# Repite: --generate → extraer JSON → --execute → --verify → preferred leader election</code></pre>
+    </div>
+
+    <h2 id="validar">7) Validar distribución final</h2>
+    <div class="card">
+      <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc   'kafka-topics --describe --topic demo --bootstrap-server kafka1:29092'</code></pre>
+      <ul class="inline">
+        <li>Réplicas incluyen <code>[1,2,3]</code> en cada partición.</li>
+        <li>Líderes repartidos entre los brokers.</li>
+      </ul>
+    </div>
+
+    <h2 id="problemas">8) Problemas frecuentes</h2>
+    <div class="card">
+      <details open>
+        <summary><strong>“Some partitions being reassigned are already in progress”</strong></summary>
+        <p>Espera a que termine la reasignación vigente o ajusta el JSON para evitar esas particiones.</p>
+      </details>
+      <details>
+        <summary><strong>“Not enough replicas”</strong></summary>
+        <p>Asegúrate de que ZK muestre <code>[1,2,3]</code> y que los tres contenedores estén <span class="ok">Up</span>.</p>
+      </details>
+      <details>
+        <summary><strong>La elección preferida no reparte líderes</strong></summary>
+        <p>Ejecuta la reasignación primero; la elección preferida solo mueve el <em>líder</em>, no cambia réplicas.</p>
+      </details>
+      <details>
+        <summary><strong>Cluster en KRaft (sin ZK)</strong></summary>
+        <p>Usa los comandos con <code>--bootstrap-server</code> (esta guía asume Zookeeper porque tu lab usa 7.5.0 con ZK).</p>
+      </details>
+    </div>
+
+    <footer>© 2025 Dra Corazón IA — Restaurar equilibrio en Kafka con Podman/Compose.</footer>
+  </div>
+
+  <script>
+    document.querySelectorAll('pre').forEach(function(block) {
+      const btn = block.querySelector('.copy');
+      if (!btn) return;
+      btn.addEventListener('click', async function() {
+        const code = block.querySelector('code')?.innerText || '';
+        try {
+          await navigator.clipboard.writeText(code);
+          const old = btn.textContent;
+          btn.textContent = '¡Copiado!';
+          setTimeout(() => btn.textContent = old, 1200);
+        } catch (e) {
+          alert('No se pudo copiar :(');
+        }
+      });
+    });
+  </script>
+</body>
+</html>
