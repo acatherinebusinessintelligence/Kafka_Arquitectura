@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kafka — Balanceo y Continuidad (3→1 brokers) · Guía paso a paso</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --panel: #ffffff;
+      --text: #0f172a;
+      --muted: #475569;
+      --accent: #2563eb;
+      --accent2: #3b82f6;
+      --ok: #16a34a;
+      --warn: #ca8a04;
+      --err: #dc2626;
+      --code: #f1f5f9;
+      --border: #e2e8f0;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      background: var(--bg); color: var(--text);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif;
+      line-height: 1.6;
+    }
+    .wrap { max-width: 1024px; margin: 24px auto 48px; padding: 0 16px; }
+    header { margin: 8px 0 20px; }
+    h1 {
+      font-size: clamp(26px, 3.6vw, 40px);
+      margin: 0 0 6px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .subtitle { color: var(--muted); font-size: 14px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 18px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.04);
+      margin: 16px 0;
+    }
+    h2 { margin-top: 30px; font-size: 22px; border-left: 4px solid var(--accent); padding-left: 10px; }
+    h3 { margin-top: 18px; font-size: 18px; }
+    .toc a { color: var(--text); text-decoration: none; }
+    .toc a:hover { color: var(--accent); }
+    .toc ol { padding-left: 22px; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13px; }
+    pre { background: var(--code); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow: auto; position: relative; }
+    pre .copy { position: absolute; top: 6px; right: 6px; background:#e2e8f0; color:#334155; border-radius: 6px; padding: 2px 6px; font-size: 12px; cursor: pointer; }
+    .hint { border-left: 3px solid var(--accent); background:#eff6ff; color:#1e3a8a; padding:10px 12px; border-radius: 8px; }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .err { color: var(--err); }
+    details summary { cursor: pointer; user-select: none; color: #334155; }
+    .grid { display:grid; gap:16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+    .kbd { display:inline-block; padding:.1rem .4rem; border:1px solid var(--border); border-bottom-width:2px; border-radius:6px; background:#f8fafc; font-size:12px; }
+    footer { margin-top: 36px; color: var(--muted); font-size: 12px; text-align:center; }
+    ul.inline > li { margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Balanceo y Continuidad en Kafka (3 → 1 broker)</h1>
+      <div class="subtitle">Guía paso a paso para operar con caídas de brokers, priorizando consistencia o disponibilidad según necesidad. <span style="margin-left:8px;color:#64748b">Actualizado: 2025-09-26</span></div>
+    </header>
+
+    <section class="card toc">
+      <strong>Contenido</strong>
+      <ol>
+        <li><a href="#prereq">Prerrequisitos del laboratorio</a></li>
+        <li><a href="#esc1">Escenario 1: pierdo 1 broker (quedan 2)</a></li>
+        <li><a href="#esc2">Escenario 2: queda 1 solo broker</a>
+          <ol>
+            <li><a href="#safe">Opción A — Seguridad primero (bloquear escrituras)</a></li>
+            <li><a href="#avail">Opción B — Disponibilidad primero (degradar garantías)</a></li>
+          </ol>
+        </li>
+        <li><a href="#reassign">Opcional avanzado: mover particiones a un solo broker</a></li>
+        <li><a href="#runbook">Checklist de ida y vuelta (degradar → operar → restaurar)</a></li>
+        <li><a href="#observa">Comandos de observación</a></li>
+      </ol>
+    </section>
+
+    <h2 id="prereq">1) Prerrequisitos del laboratorio</h2>
+    <div class="card">
+      <h3>1.1 Cluster con 3 brokers y Zookeeper</h3>
+      <pre><button class="copy">Copiar</button><code>podman ps --format "{{.Names}}	{{.Status}}	{{.Ports}}"</code></pre>
+      <p>Debes ver <code>kafka1</code>, <code>kafka2</code>, <code>kafka3</code> <span class="ok">Up</span> y <code>zookeeper</code> <span class="ok">Up</span>.</p>
+
+      <h3>1.2 Verificar 3 brokers en ZK</h3>
+      <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc 'zookeeper-shell zookeeper:2181 ls /brokers/ids'</code></pre>
+      <p>Salida esperada: <code>[1, 2, 3]</code>.</p>
+
+      <h3>1.3 Crear tópico base (RF=3, 3 particiones)</h3>
+      <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc   'kafka-topics --create --topic demo    --bootstrap-server kafka1:29092    --partitions 3 --replication-factor 3 --if-not-exists'</code></pre>
+
+      <h3>1.4 Asegurar consistencia por defecto</h3>
+      <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc   "kafka-configs --bootstrap-server kafka1:29092    --entity-type topics --entity-name demo    --alter --add-config min.insync.replicas=2"</code></pre>
+      <ul class="inline">
+        <li><span class="kbd">min.insync.replicas=2</span>: exige que al menos 2 réplicas confirmen para escribir.</li>
+        <li>Productores deben usar <span class="kbd">acks=all</span> (ver ejemplos más abajo).</li>
+      </ul>
+    </div>
+
+    <h2 id="esc1">2) Escenario 1: pierdo 1 broker (quedan 2)</h2>
+    <div class="card">
+      <p>Con <strong>RF=3</strong>, <strong>min.insync.replicas=2</strong> y productores <strong>acks=all</strong>, puedes perder un broker y seguir escribiendo sin pérdida de durabilidad.</p>
+      <h3>Pasos</h3>
+      <ol>
+        <li>Apaga un broker, por ejemplo <code>kafka3</code>:</li>
+      </ol>
+      <pre><button class="copy">Copiar</button><code>podman stop kafka3</code></pre>
+      <ol start="2">
+        <li>Produce y consume para validar que el sistema sigue operativo:</li>
+      </ol>
+      <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc   "printf 'uno
+dos
+tres
+' | kafka-console-producer    --topic demo --bootstrap-server kafka1:29092 --producer-property acks=all"
+
+podman exec -it kafka2 bash -lc   'kafka-console-consumer --topic demo --group g1    --from-beginning --bootstrap-server kafka2:29092 --timeout-ms 10000'</code></pre>
+      <ol start="3">
+        <li>Enciende nuevamente el broker apagado:</li>
+      </ol>
+      <pre><button class="copy">Copiar</button><code>podman start kafka3</code></pre>
+    </div>
+
+    <h2 id="esc2">3) Escenario 2: queda 1 solo broker</h2>
+    <p class="hint">Aquí decides si priorizas <strong>seguridad</strong> (consistencia, sin pérdida) o <strong>disponibilidad</strong> (seguir escribiendo arriesgando pérdida). Elige una de las dos opciones.</p>
+
+    <h3 id="safe">3.1 Opción A — Seguridad primero (bloquear escrituras)</h3>
+    <div class="card">
+      <p>Mantén <span class="kbd">min.insync.replicas=2</span> y productores con <span class="kbd">acks=all</span>. Con un solo broker no habrá quórum, por lo que <strong>se bloquearán escrituras</strong> hasta recuperar otro broker. Evitas pérdida de datos confirmados.</p>
+      <h4>Comprobación</h4>
+      <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc   'kafka-topics --describe --topic demo --bootstrap-server kafka1:29092'</code></pre>
+      <p>Verifica el campo <em>ISR</em>. Con 1 broker, el ISR será 1 y por eso no se aceptarán escrituras con <code>min.insync.replicas=2</code>.</p>
+    </div>
+
+    <h3 id="avail">3.2 Opción B — Disponibilidad primero (degradar garantías)</h3>
+    <div class="card">
+      <p>Permite seguir escribiendo con un solo broker, <strong>aceptando riesgo</strong> de pérdida/divergencia al volver los otros.</p>
+
+      <h4>Paso 1 — Bajar ISR mínimo del tópico</h4>
+      <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc   "kafka-configs --bootstrap-server kafka1:29092    --entity-type topics --entity-name demo    --alter --add-config min.insync.replicas=1"</code></pre>
+      <ul class="inline">
+        <li><span class="kbd">--entity-type topics</span>: operamos sobre tópicos.</li>
+        <li><span class="kbd">--entity-name demo</span>: nombre del tópico.</li>
+        <li><span class="kbd">min.insync.replicas=1</span>: permite confirmar con una sola réplica (el broker sobreviviente).</li>
+      </ul>
+
+      <h4>Paso 2 — Productores en modo disponibilidad</h4>
+      <pre><button class="copy">Copiar</button><code># Console Producer con acks=1 (no espera a ISR completo)
+podman exec -it kafka1 bash -lc   "kafka-console-producer --topic demo    --bootstrap-server kafka1:29092    --producer-property acks=1"</code></pre>
+      <ul class="inline">
+        <li><span class="kbd">acks=1</span>: el líder confirma sin esperar a réplicas (rápido, pero menos seguro).</li>
+        <li>Alternativas: <span class="kbd">acks=0</span> (más rápido, sin confirmación), <span class="kbd">acks=all</span> (seguro, requiere ISR≥min ISR).</li>
+      </ul>
+
+      <h4>⚠️ (Opcional y riesgoso) Elección de líder no limpia</h4>
+      <p>Si el único broker no está en ISR, habilitar <code>unclean.leader.election</code> permite elegirlo como líder igualmente, con <strong>alto riesgo</strong> de pérdida.</p>
+      <details>
+        <summary>Cómo se habilita temporalmente</summary>
+        <pre><button class="copy">Copiar</button><code># Edita tu podman-compose y añade en cada broker:
+#   KAFKA_UNCLEAN_LEADER_ELECTION_ENABLE=true
+# Luego recrea contenedores:
+podman-compose -f podman-compose-kafka-3B.yml -p kafka-lab3 up -d</code></pre>
+      </details>
+
+      <h4>Revertir (volver a modo seguro)</h4>
+      <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc   "kafka-configs --bootstrap-server kafka1:29092    --entity-type topics --entity-name demo    --alter --add-config min.insync.replicas=2"</code></pre>
+    </div>
+
+    <h2 id="reassign">4) Opcional avanzado: mover particiones a un solo broker</h2>
+    <div class="card">
+      <p>Si necesitas que <strong>todas las particiones</strong> del tópico queden físicamente en el broker sobreviviente (ej. <code>1</code>), puedes <strong>reasignar particiones</strong>. Úsalo sólo en emergencia y recuerda revertir luego.</p>
+
+      <h4>4.1 Crear plan de reasignación explícito</h4>
+      <p>Para un tópico <code>demo</code> con 3 particiones (0,1,2), crea un archivo JSON dentro del contenedor:</p>
+      <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc "cat &gt;/tmp/plan_to_broker1.json &lt;&lt;'JSON'
+{
+  "version": 1,
+  "partitions": [
+    {"topic": "demo", "partition": 0, "replicas": [1]},
+    {"topic": "demo", "partition": 1, "replicas": [1]},
+    {"topic": "demo", "partition": 2, "replicas": [1]}
+  ]
+}
+JSON"</code></pre>
+
+      <h4>4.2 Ejecutar la reasignación</h4>
+      <pre><button class="copy">Copiar</button><code># En tu setup (Kafka 7.5.0 con Zookeeper), usa el modo ZK:
+podman exec -it kafka1 bash -lc   "kafka-reassign-partitions --zookeeper zookeeper:2181    --reassignment-json-file /tmp/plan_to_broker1.json --execute"</code></pre>
+
+      <h4>4.3 Verificar progreso</h4>
+      <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc   "kafka-reassign-partitions --zookeeper zookeeper:2181    --reassignment-json-file /tmp/plan_to_broker1.json --verify"</code></pre>
+
+      <h4>4.4 Revertir cuando regresen los 3 brokers</h4>
+      <p>Crea un plan para volver a <strong>réplicas [1,2,3]</strong> (el orden define preferencia de líder):</p>
+      <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc "cat &gt;/tmp/plan_restore_123.json &lt;&lt;'JSON'
+{
+  "version": 1,
+  "partitions": [
+    {"topic": "demo", "partition": 0, "replicas": [1,2,3]},
+    {"topic": "demo", "partition": 1, "replicas": [1,2,3]},
+    {"topic": "demo", "partition": 2, "replicas": [1,2,3]}
+  ]
+}
+JSON"
+
+podman exec -it kafka1 bash -lc   "kafka-reassign-partitions --zookeeper zookeeper:2181    --reassignment-json-file /tmp/plan_restore_123.json --execute"</code></pre>
+    </div>
+
+    <h2 id="runbook">5) Checklist de ida y vuelta</h2>
+    <div class="card">
+      <ol>
+        <li><strong>Normal:</strong> RF=3 · <code>min.insync.replicas=2</code> · productores <code>acks=all</code>.</li>
+        <li><strong>Se cae 1 broker:</strong> operar normal, monitorear ISR, producir/consumir.</li>
+        <li><strong>Queda 1 broker:</strong>
+          <ul>
+            <li><em>Seguro:</em> mantener <code>min.insync.replicas=2</code> → se bloquean escrituras.</li>
+            <li><em>Disponible:</em> bajar a <code>min.insync.replicas=1</code> + productores <code>acks=1</code>. <span class="warn">Riesgo de pérdida</span>.</li>
+          </ul>
+        </li>
+        <li><strong>(Opcional) Reasignar a 1 broker</strong> si hace falta consolidar físicamente.</li>
+        <li><strong>Restaurar:</strong> volver a RF=3, <code>min.insync.replicas=2</code>, <code>acks=all</code>, y (si aplica) revertir reasignación.</li>
+      </ol>
+    </div>
+
+    <h2 id="observa">6) Comandos de observación</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Estado del tópico</h3>
+        <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc   'kafka-topics --describe --topic demo --bootstrap-server kafka1:29092'</code></pre>
+      </div>
+      <div class="card">
+        <h3>Offsets y lag del grupo</h3>
+        <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc   'kafka-consumer-groups --bootstrap-server kafka1:29092 --group g1 --describe'</code></pre>
+      </div>
+      <div class="card">
+        <h3>Logs rápidos</h3>
+        <pre><button class="copy">Copiar</button><code>podman logs --tail=150 kafka1</code></pre>
+      </div>
+      <div class="card">
+        <h3>Brokers en ZK</h3>
+        <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc   'zookeeper-shell zookeeper:2181 ls /brokers/ids'</code></pre>
+      </div>
+    </div>
+
+    <footer>© 2025 Dra Corazón IA — Laboratorio de Alta Disponibilidad y Balanceo en Kafka.</footer>
+  </div>
+
+  <script>
+    document.querySelectorAll('pre').forEach(function(block) {
+      const btn = block.querySelector('.copy');
+      if (!btn) return;
+      btn.addEventListener('click', async function() {
+        const code = block.querySelector('code')?.innerText || '';
+        try {
+          await navigator.clipboard.writeText(code);
+          const old = btn.textContent;
+          btn.textContent = '¡Copiado!';
+          setTimeout(() => btn.textContent = old, 1200);
+        } catch (e) {
+          alert('No se pudo copiar :(');
+        }
+      });
+    });
+  </script>
+</body>
+</html>
