@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kafka + Podman-Compose — Troubleshooting & Comandos</title>
+  <style>
+    :root {
+      --bg: #f9fafb;
+      --panel: #ffffff;
+      --muted: #4b5563;
+      --text: #111827;
+      --accent: #2563eb;
+      --accent-2: #3b82f6;
+      --ok: #16a34a;
+      --warn: #ca8a04;
+      --err: #dc2626;
+      --code: #f3f4f6;
+      --border: #e5e7eb;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      line-height: 1.55;
+    }
+    .wrap {
+      max-width: 1024px;
+      margin: 32px auto;
+      padding: 0 16px 48px;
+    }
+    header {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+    h1 {
+      font-size: clamp(28px, 3.6vw, 40px);
+      margin: 0;
+      letter-spacing: .3px;
+      line-height: 1.15;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 15px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 18px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.05);
+    }
+    .toc a {
+      color: var(--text);
+      text-decoration: none;
+    }
+    .toc a:hover { color: var(--accent); }
+    .toc ol { padding-left: 20px; }
+    h2 {
+      margin-top: 36px;
+      font-size: 22px;
+      border-left: 4px solid var(--accent);
+      padding-left: 10px;
+    }
+    h3 { margin-top: 22px; font-size: 18px; }
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 13px;
+    }
+    pre {
+      background: var(--code);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      overflow: auto;
+      position: relative;
+    }
+    pre .copy {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      background: #e5e7eb;
+      color: #374151;
+      border-radius: 6px;
+      padding: 2px 6px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .badge {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 10px;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      background: #f3f4f6;
+      color: var(--muted);
+      margin-left: 8px;
+    }
+    .hint {
+      border-left: 3px solid var(--accent);
+      background: #eff6ff;
+      padding: 10px 12px;
+      border-radius: 8px;
+      color: #1e3a8a;
+      font-size: 14px;
+    }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .err { color: var(--err); }
+    details summary {
+      cursor: pointer;
+      user-select: none;
+      color: #374151;
+    }
+    footer {
+      margin-top: 40px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+    }
+    .grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Kafka + Podman-Compose<br/>Troubleshooting &amp; Comandos Rápidos</h1>
+      <div class="subtitle">Guía práctica para un cluster de 3 brokers (cp-kafka 7.5.0) con Zookeeper en Podman. <span class="badge">Actualizado: 2025-09-26</span></div>
+    </header>
+
+    <section class="card toc">
+      <strong>Contenido</strong>
+      <ol>
+        <li><a href="#arranque">Arranque limpio del cluster (3 brokers)</a></li>
+        <li><a href="#checks">Checks esenciales</a></li>
+        <li><a href="#topics">Crear, describir y probar tópicos</a></li>
+        <li><a href="#failover">Prueba de tolerancia a fallos</a></li>
+        <li><a href="#problemas">Problemas comunes &amp; soluciones</a></li>
+      </ol>
+    </section>
+
+    <h2 id="arranque">1) Arranque limpio del cluster (3 brokers)</h2>
+    <pre><button class="copy">Copiar</button><code>podman-compose -f podman-compose-kafka-3B.yml -p kafka-lab3 up -d</code></pre>
+
+    <h2 id="checks">2) Checks esenciales</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Contenedores activos</h3>
+        <pre><button class="copy">Copiar</button><code>podman ps --format "{{.Names}}	{{.Status}}"</code></pre>
+      </div>
+      <div class="card">
+        <h3>Brokers en Zookeeper</h3>
+        <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc 'zookeeper-shell zookeeper:2181 ls /brokers/ids'</code></pre>
+      </div>
+    </div>
+
+    <h2 id="topics">3) Crear, describir y probar tópicos</h2>
+    <pre><button class="copy">Copiar</button><code>podman exec -it kafka1 bash -lc   'kafka-topics --create --topic demo    --bootstrap-server kafka1:29092    --partitions 3 --replication-factor 3 --if-not-exists'</code></pre>
+
+    <h2 id="failover">4) Prueba de tolerancia a fallos</h2>
+    <p>Ejemplo: parar un broker y seguir produciendo/consumiendo mensajes.</p>
+    <pre><button class="copy">Copiar</button><code>podman stop kafka3
+podman start kafka3</code></pre>
+
+    <h2 id="problemas">5) Problemas comunes &amp; soluciones</h2>
+    <details open>
+      <summary><strong>Contenedor ya existe</strong></summary>
+      <pre><button class="copy">Copiar</button><code>podman rm -f kafka1 kafka2 kafka3 zookeeper</code></pre>
+    </details>
+
+    <details>
+      <summary><strong>Solo aparece 1 broker</strong></summary>
+      <p>Usaste un YAML con un solo servicio. Asegúrate de ejecutar el archivo con <code>kafka1, kafka2, kafka3</code>.</p>
+    </details>
+
+    <details>
+      <summary><strong>Error de replicación RF=3</strong></summary>
+      <p>Revisa que Zookeeper muestre <code>[1,2,3]</code> y que los 3 contenedores estén arriba.</p>
+    </details>
+
+    <details>
+      <summary><strong>Consumer TimeoutException</strong></summary>
+      <p>Ocurre si no hay mensajes nuevos y se usa <code>--timeout-ms</code>. Es normal: usa <code>--max-messages</code> o quita el timeout.</p>
+    </details>
+
+    <footer>
+      © 2025 Dra Corazón IA — Guía rápida para laboratorios Kafka con Podman.
+    </footer>
+  </div>
+
+  <script>
+    document.querySelectorAll('pre').forEach(function(block) {
+      const btn = block.querySelector('.copy');
+      if (!btn) return;
+      btn.addEventListener('click', async function() {
+        const code = block.querySelector('code')?.innerText || '';
+        try {
+          await navigator.clipboard.writeText(code);
+          const old = btn.textContent;
+          btn.textContent = '¡Copiado!';
+          setTimeout(() => btn.textContent = old, 1200);
+        } catch (e) {
+          alert('No se pudo copiar :(');
+        }
+      });
+    });
+  </script>
+</body>
+</html>
