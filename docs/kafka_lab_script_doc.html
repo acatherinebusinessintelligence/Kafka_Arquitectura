@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Guía del script kafka_lab.sh · Podman + Kafka (3 brokers)</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --panel: #ffffff;
+      --text: #0f172a;
+      --muted: #475569;
+      --accent: #2563eb;
+      --accent2: #3b82f6;
+      --ok: #16a34a;
+      --warn: #ca8a04;
+      --err: #dc2626;
+      --code: #f1f5f9;
+      --border: #e2e8f0;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin:0; padding:0; background:var(--bg); color:var(--text); font-family: system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif; line-height:1.65; }
+    .wrap { max-width: 1100px; margin: 28px auto 56px; padding: 0 18px; }
+    header { margin: 4px 0 20px; }
+    h1 { font-size: clamp(26px,3.6vw,42px); margin: 0 0 6px; background: linear-gradient(90deg,var(--accent),var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .subtitle { color: var(--muted); font-size: 14px; }
+    h2 { margin-top: 30px; font-size: 22px; border-left: 4px solid var(--accent); padding-left: 10px; }
+    h3 { margin-top: 18px; font-size: 18px; }
+    p { margin: 10px 0; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin: 16px 0; box-shadow: 0 2px 8px rgba(0,0,0,.04); }
+    .toc a { color: var(--text); text-decoration: none; }
+    .toc a:hover { color: var(--accent); }
+    .toc ol { padding-left: 22px; }
+    code, pre { font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size: 13px; }
+    pre { background: var(--code); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow: auto; position: relative; }
+    pre .copy { position: absolute; top: 6px; right: 6px; background:#e2e8f0; color:#334155; border-radius: 6px; padding: 2px 6px; font-size: 12px; cursor: pointer; }
+    .grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .hint { border-left: 3px solid var(--accent); background:#eff6ff; color:#1e3a8a; padding:12px 14px; border-radius: 8px; }
+    .ok { color: var(--ok); } .warn { color: var(--warn); } .err { color: var(--err); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; }
+    th { background:#f8fafc; }
+    kbd { background:#e2e8f0; padding:2px 6px; border-radius:6px; border:1px solid #cbd5e1; }
+    footer { margin-top: 40px; color: var(--muted); font-size: 12px; text-align:center; }
+    @media (max-width: 860px) { .grid, .grid-3 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Guía del script <code>kafka_lab.sh</code></h1>
+      <div class="subtitle">Podman + Kafka (3 brokers) • Actualizado: 2025-09-29</div>
+    </header>
+
+    <section class="card toc">
+      <strong>Índice</strong>
+      <ol>
+        <li><a href="#que-es">¿Qué hace el script?</a></li>
+        <li><a href="#uso-rapido">Uso rápido (TL;DR)</a></li>
+        <li><a href="#comandos">Comandos disponibles</a></li>
+        <li><a href="#variables">Variables de entorno</a></li>
+        <li><a href="#flujo-up">Flujo interno de <code>up</code></a></li>
+        <li><a href="#workflows">Workflows típicos</a></li>
+        <li><a href="#troubles">Troubleshooting</a></li>
+      </ol>
+    </section>
+
+    <h2 id="que-es">¿Qué hace el script?</h2>
+    <div class="card">
+      <p><strong>kafka_lab.sh</strong> automatiza un laboratorio Kafka con Podman:</p>
+      <ul>
+        <li>Levanta <strong>Zookeeper</strong> y <strong>3 brokers</strong> de Kafka en la misma red.</li>
+        <li>Espera a que Zookeeper registre los brokers <code>[1, 2, 3]</code>.</li>
+        <li>Opcionalmente crea un <strong>tópico</strong> de práctica y produce mensajes de ejemplo.</li>
+        <li>Incluye comandos para <em>verificar</em>, <em>producir</em>, <em>consumir</em>, <em>resetear offsets</em>, etc.</li>
+      </ul>
+      <div class="hint"><strong>Nota:</strong> El script usa las imágenes Confluent <code>7.5.0</code> y puertos por defecto 9092/9093/9094 (brokers) y 2181 (ZK). Todo es configurable por variables de entorno.</div>
+    </div>
+
+    <h2 id="uso-rapido">Uso rápido (TL;DR)</h2>
+    <div class="card">
+      <pre><button class="copy">Copiar</button><code>chmod +x kafka_lab.sh
+
+# Levantar todo y crear el tópico automáticamente
+./kafka_lab.sh up
+
+# (opcional) Levantar, crear tópico y producir 20 mensajes
+AUTO_PRODUCE=20 ./kafka_lab.sh up
+
+# Verificar estado
+./kafka_lab.sh verify
+
+# Consumir desde el inicio con un grupo
+./kafka_lab.sh consume grupo2
+
+# Ver offsets/lag del grupo
+./kafka_lab.sh offsets grupo2
+
+# Resetear offsets del grupo a earliest (grupo inactivo)
+./kafka_lab.sh reset grupo2
+
+# Bajar/eliminar contenedores
+./kafka_lab.sh down</code></pre>
+    </div>
+
+    <h2 id="comandos">Comandos disponibles</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>Comando</th><th>Qué hace</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>up</code></td><td>Crear/red <code>NET</code>, levantar <code>zookeeper</code> y <code>kafka1..3</code>, esperar <code>[1,2,3]</code> en ZK y (si <code>AUTO_TOPIC=1</code>) crear el tópico <code>TOPIC</code>. Con <code>AUTO_PRODUCE=&lt;N&gt;</code>, además produce N mensajes.</td></tr>
+          <tr><td><code>verify</code></td><td>Muestra contenedores, redes, DNS a ZK y <code>/brokers/ids</code>.</td></tr>
+          <tr><td><code>topic [TOPIC]</code></td><td>Crea (si no existe) y describe un tópico con <code>PARTITIONS</code> y <code>RF</code>.</td></tr>
+          <tr><td><code>produce [N]</code></td><td>Produce N mensajes al tópico <code>TOPIC</code> usando <em>RoundRobinPartitioner</em>.</td></tr>
+          <tr><td><code>consume [GROUP]</code></td><td>Consume desde el inicio (si el grupo no tiene offsets previos) con <code>GROUP</code>. Usa <code>kafka3</code> como cliente.</td></tr>
+          <tr><td><code>tail [GROUP]</code></td><td>Consume solo <em>mensajes nuevos</em> (modo latest) con <code>GROUP</code>.</td></tr>
+          <tr><td><code>offsets [GROUP]</code></td><td>Describe offsets y lag del grupo en el tópico.</td></tr>
+          <tr><td><code>reset [GROUP] [TOPIC]</code></td><td>Rebobina offsets del grupo a <code>earliest</code> (el grupo debe estar inactivo).</td></tr>
+          <tr><td><code>status</code></td><td>Lista contenedores activos y puertos.</td></tr>
+          <tr><td><code>down</code></td><td>Elimina los contenedores <code>zookeeper</code>, <code>kafka1..3</code>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="variables">Variables de entorno</h2>
+    <div class="card">
+      <table>
+        <thead><tr><th>Variable</th><th>Default</th><th>Descripción</th></tr></thead>
+        <tbody>
+          <tr><td><code>NET</code></td><td><code>kafka-lab_default</code></td><td>Red Podman donde viven ZK y los brokers.</td></tr>
+          <tr><td><code>ZK_IMAGE</code></td><td><code>docker.io/confluentinc/cp-zookeeper:7.5.0</code></td><td>Imagen de ZK.</td></tr>
+          <tr><td><code>KAFKA_IMAGE</code></td><td><code>docker.io/confluentinc/cp-kafka:7.5.0</code></td><td>Imagen de Kafka.</td></tr>
+          <tr><td><code>TOPIC</code></td><td><code>transacciones</code></td><td>Tópico por defecto para pruebas.</td></tr>
+          <tr><td><code>PARTITIONS</code></td><td><code>4</code></td><td>Número de particiones al crear el tópico.</td></tr>
+          <tr><td><code>RF</code></td><td><code>3</code></td><td>Replication factor del tópico y tópicos internos.</td></tr>
+          <tr><td><code>MIN_ISR</code></td><td><code>2</code></td><td>Mínimo de réplicas en sincronía.</td></tr>
+          <tr><td><code>AUTO_TOPIC</code></td><td><code>1</code></td><td>Si es <code>1</code>, <code>up</code> crea automáticamente el tópico <code>TOPIC</code>.</td></tr>
+          <tr><td><code>AUTO_PRODUCE</code></td><td><code>0</code></td><td>Si es &gt;0, <code>up</code> produce N mensajes de ejemplo.</td></tr>
+          <tr><td><code>PORT1/2/3</code></td><td><code>9092/9093/9094</code></td><td>Puertos host para los brokers kafka1..3.</td></tr>
+          <tr><td><code>ZK_PORT</code></td><td><code>2181</code></td><td>Puerto host de Zookeeper.</td></tr>
+        </tbody>
+      </table>
+      <p><strong>Ejemplo:</strong></p>
+      <pre><button class="copy">Copiar</button><code>export TOPIC=demo PARTITIONS=3 RF=3 AUTO_PRODUCE=15
+./kafka_lab.sh up</code></pre>
+    </div>
+
+    <h2 id="flujo-up">Flujo interno de <code>up</code></h2>
+    <div class="card">
+      <ol>
+        <li>Verifica o crea la red <code>NET</code>.</li>
+        <li>Levanta <code>zookeeper</code> con alias DNS <code>zookeeper</code>.</li>
+        <li>Levanta <code>kafka1</code>, <code>kafka2</code>, <code>kafka3</code> con listeners internos <code>kafkaN:29092</code> y puertos host <code>PORTN</code>.</li>
+        <li>Espera hasta ver <code>[1, 2, 3]</code> en <code>/brokers/ids</code> de ZK.</li>
+        <li>Si <code>AUTO_TOPIC=1</code>, crea y describe el tópico <code>TOPIC</code>.</li>
+        <li>Si <code>AUTO_PRODUCE&gt;0</code>, produce N mensajes (round-robin) y muestra offsets.</li>
+      </ol>
+    </div>
+
+    <h2 id="workflows">Workflows típicos</h2>
+    <div class="card grid">
+      <div>
+        <h3>Levantar todo y probar</h3>
+        <pre><button class="copy">Copiar</button><code>./kafka_lab.sh up
+./kafka_lab.sh verify
+./kafka_lab.sh consume grupo2     # leer desde inicio (si grupo sin offsets)
+./kafka_lab.sh tail grupo2        # solo lo nuevo
+./kafka_lab.sh offsets grupo2</code></pre>
+      </div>
+      <div>
+        <h3>Rebobinar un grupo a earliest</h3>
+        <pre><button class="copy">Copiar</button><code># asegúrate de cerrar consumers del grupo
+./kafka_lab.sh reset grupo2
+./kafka_lab.sh consume grupo2</code></pre>
+      </div>
+      <div>
+        <h3>Producir N mensajes y ver offsets</h3>
+        <pre><button class="copy">Copiar</button><code>./kafka_lab.sh produce 20
+./kafka_lab.sh offsets grupo2</code></pre>
+      </div>
+      <div>
+        <h3>Crear otro tópico de práctica</h3>
+        <pre><button class="copy">Copiar</button><code>./kafka_lab.sh topic demo
+./kafka_lab.sh produce 10
+./kafka_lab.sh consume grupo3</code></pre>
+      </div>
+    </div>
+
+    <h2 id="troubles">Troubleshooting</h2>
+    <div class="card">
+      <details open>
+        <summary><strong>“Name or service not known” (zookeeper)</strong></summary>
+        <p>Los contenedores no comparten red. Conecta los brokers a <code>NET</code>:</p>
+        <pre><button class="copy">Copiar</button><code>podman network connect kafka-lab_default kafka1
+podman network connect kafka-lab_default kafka2
+podman network connect kafka-lab_default kafka3</code></pre>
+      </details>
+      <details>
+        <summary><strong>“name is already in use”</strong></summary>
+        <p>El script usa <code>--replace</code> en <code>podman run</code>. Si ves nombres en uso, puedes borrar:</p>
+        <pre><button class="copy">Copiar</button><code>podman rm -f kafka1 kafka2 kafka3 zookeeper</code></pre>
+      </details>
+      <details>
+        <summary><strong>No leo nada con <code>--from-beginning</code></strong></summary>
+        <p>Si el grupo ya tiene offsets comprometidos, <code>--from-beginning</code> no rebobina. Usa:</p>
+        <pre><button class="copy">Copiar</button><code>./kafka_lab.sh reset grupo2
+./kafka_lab.sh consume grupo2</code></pre>
+      </details>
+      <details>
+        <summary><strong>Puertos ocupados en host</strong></summary>
+        <p>Cambia <code>PORT1/2/3</code>:</p>
+        <pre><button class="copy">Copiar</button><code>PORT1=19092 PORT2=19093 PORT3=19094 ./kafka_lab.sh up</code></pre>
+      </details>
+    </div>
+
+    <footer>© 2025 — Guía del script <code>kafka_lab.sh</code> · Podman + Kafka</footer>
+  </div>
+
+  <script>
+    document.querySelectorAll('pre').forEach(function(block) {
+      const btn = block.querySelector('.copy');
+      if (!btn) return;
+      btn.addEventListener('click', async function() {
+        const code = block.querySelector('code')?.innerText || '';
+        try {
+          await navigator.clipboard.writeText(code);
+          const old = btn.textContent;
+          btn.textContent = '¡Copiado!';
+          setTimeout(() => btn.textContent = old, 1200);
+        } catch (e) {
+          alert('No se pudo copiar :(');
+        }
+      });
+    });
+  </script>
+</body>
+</html>
