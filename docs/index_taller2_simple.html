@@ -24,12 +24,14 @@ main{max-width:1100px;margin:0 auto;padding:24px}
 .card p{margin:0;color:#475569}
 .card a{margin-top:auto;display:inline-block;text-decoration:none;border:1px solid var(--border);padding:8px 12px;border-radius:10px}
 .card a:hover{border-color:#cbd5e1}
-.badge{display:inline-block;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:#fff;color:#475569;font-size:.85rem;text-decoration:none}
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:#fff;color:#111827;font-weight:600;font-size:.9rem;text-decoration:none}
 .kpi{display:flex;gap:10px;flex-wrap:wrap;margin:.5rem 0}
 section{background:var(--paper);border:1px solid var(--border);border-radius:16px;padding:18px;margin:18px 0}
 pre{position:relative;background:#fff;border:1px solid var(--border);border-radius:12px;padding:12px;overflow:auto}
 .copy{position:absolute;right:8px;top:8px;font-size:.9rem;border:1px solid var(--border);background:#fff;border-radius:7px;padding:4px 10px;cursor:pointer;color:#334155}
 .copy:hover{border-color:#cbd5e1}
+.btn{display:inline-block;background:#111827;color:#fff !important;border:1px solid #111827;border-radius:12px;padding:10px 14px;text-decoration:none}
+.btn:hover{opacity:.9}
 footer{color:#64748b;font-size:.95rem;text-align:center;margin:26px 0}
 </style>
 </head>
@@ -41,8 +43,8 @@ footer{color:#64748b;font-size:.95rem;text-align:center;margin:26px 0}
     <span class="badge">Consumer Groups</span>
     <span class="badge">Rebalanceo</span>
     <span class="badge">Retención</span>
-    <!-- NUEVO: botón visible en el header -->
-    <a class="badge" href="kafka_lab_script_doc.html">Guía script kafka_lab.sh</a>
+    <!-- BOTÓN MUY VISIBLE EN EL HEADER -->
+    <a class="badge" href="./kafka_lab_script_doc.html">⚙️ Guía script kafka_lab.sh</a>
   </div>
 </header>
 
@@ -72,13 +74,20 @@ footer{color:#64748b;font-size:.95rem;text-align:center;margin:26px 0}
       <a href="taller2_topic4_retencion.html">Abrir</a>
     </div>
 
-    <!-- NUEVA TARJETA: Guía del script -->
+    <!-- TARJETA EXTRA PARA LA GUÍA -->
     <div class="card">
       <h3>⚙️ Guía del script <code>kafka_lab.sh</code></h3>
       <p>Qué hace el script, cómo usarlo, variables y troubleshooting.</p>
-      <a href="kafka_lab_script_doc.html">Abrir</a>
+      <a href="./kafka_lab_script_doc.html">Abrir</a>
     </div>
   </div>
+</section>
+
+<!-- SECCIÓN NUEVA CON BOTÓN GRANDE -->
+<section>
+  <h2>Guías relacionadas</h2>
+  <p>Consulta la guía paso a paso del script de automatización del laboratorio:</p>
+  <a class="btn" href="./kafka_lab_script_doc.html">Abrir la Guía del Script (kafka_lab.sh)</a>
 </section>
 
 <section>
@@ -104,3 +113,4 @@ function copy(btn){
 </script>
 </body>
 </html>
+
